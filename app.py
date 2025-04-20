@@ -1,79 +1,77 @@
-import os
 import streamlit as st
+from PIL import Image
 import torch
 import torch.nn as nn
-from torchvision import transforms
-from PIL import Image
-import kagglehub
+from torchvision import transforms, models
+import numpy as np
 
-# Install necessary packages
-os.system('pip install torch==2.0.0+cpu torchvision==0.15.0+cpu Pillow')
-
-# Define your model architecture
+# ---------------------------
+# Define the Emotion Classifier
+# ---------------------------
 class EmotionClassifier(nn.Module):
     def __init__(self, num_classes=3):
         super(EmotionClassifier, self).__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1),
+        self.base_model = models.resnet18(pretrained=False)
+        self.base_model.fc = nn.Sequential(
+            nn.Dropout(0.5),
+            nn.Linear(self.base_model.fc.in_features, 256),
             nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Flatten(),
-            nn.Linear(16 * 112 * 112, 128),
-            nn.ReLU(),
-            nn.Linear(128, num_classes)
+            nn.BatchNorm1d(256),
+            nn.Linear(256, num_classes)
         )
 
     def forward(self, x):
-        return self.net(x)
+        return self.base_model(x)
 
-# Streamlit UI
-st.title("😊 Emotion Classifier")
-st.write("Upload a face image to predict the emotion.")
-
-# Download the latest version of the model from Kaggle Hub
-try:
-    path = kagglehub.model_download("prakhar146/emotion-classification/pyTorch/default")
-    st.write(f"Model loaded from: {path}")
-except Exception as e:
-    st.error(f"Error downloading the model: {e}")
-
-# Load the model
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = EmotionClassifier(num_classes=3).to(device)
-
-# Ensure the model is loaded correctly
-try:
-    model.load_state_dict(torch.load(path, map_location=device))
+# ---------------------------
+# Load model
+# ---------------------------
+@st.cache_resource
+def load_model():
+    model = EmotionClassifier(num_classes=3)
+    model.load_state_dict(torch.load("emotion_classifier.pth", map_location=torch.device("cpu")))
     model.eval()
-except Exception as e:
-    st.error(f"Error loading the model: {e}")
+    return model
 
-# Define transforms for image preprocessing
+model = load_model()
+
+# ---------------------------
+# Define transform
+# ---------------------------
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
     transforms.Normalize([0.5], [0.5])
 ])
 
-# Class labels (adjust according to your dataset)
-label_map = {0: "Angry", 1: "Sad", 2: "Happy"}
+# ---------------------------
+# Label Mapping
+# ---------------------------
+# Adjust these to your actual labels
+labels_map = {
+    0: "Happy",
+    1: "Sad",
+    2: "Angry"
+}
 
-# Image uploader
-uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
+# ---------------------------
+# Streamlit UI
+# ---------------------------
+st.title("Emotion Classifier from Image")
+st.write("Upload an image of a face and I’ll tell you the emotion!")
 
-if uploaded_file:
-    try:
-        image = Image.open(uploaded_file).convert('RGB')
-        st.image(image, caption="Uploaded Image", use_column_width=True)
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
 
-        # Preprocess the image and make a prediction
-        img_tensor = transform(image).unsqueeze(0).to(device)
+if uploaded_file is not None:
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="Uploaded Image", use_column_width=True)
 
-        with torch.no_grad():
-            output = model(img_tensor)
-            _, predicted = torch.max(output, 1)
-            emotion = label_map[predicted.item()]
+    # Preprocess
+    input_tensor = transform(image).unsqueeze(0)  # Add batch dimension
 
-        st.success(f"Predicted Emotion: **{emotion}**")
-    except Exception as e:
-        st.error(f"Error processing the image: {e}")
+    # Predict
+    with torch.no_grad():
+        outputs = model(input_tensor)
+        _, predicted = torch.max(outputs, 1)
+        predicted_class = predicted.item()
+        st.success(f"Predicted Emotion: **{labels_map[predicted_class]}**")
