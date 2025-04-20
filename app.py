@@ -1,3 +1,6 @@
+import os
+os.system('pip install torch==2.0.0+cpu torchvision==0.15.0+cpu')
+
 import streamlit as st
 import torch
 import torch.nn as nn
