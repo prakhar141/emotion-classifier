@@ -1,3 +1,15 @@
+import os
+import streamlit as st
+
+try:
+    import torch
+    st.success(f"torch {torch.__version__} is available")
+except ImportError:
+    st.warning("torch not found. Installing...")
+    os.system('pip install torch==2.0.1 torchvision==0.15.2')
+    import torch
+    st.success(f"Installed torch version: {torch.__version__}")
+
 import streamlit as st
 from PIL import Image
 import torch
