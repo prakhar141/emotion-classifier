@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from torchvision import transforms
 from PIL import Image
+import kagglehub
 
 # Define your model architecture
 class EmotionClassifier(nn.Module):
@@ -21,12 +22,21 @@ class EmotionClassifier(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-# Load model
-model = EmotionClassifier(num_classes=3)
-model.load_state_dict(torch.load("emotion_classifier.pth", map_location=torch.device('cpu')))
+# Streamlit UI
+st.title("😊 Emotion Classifier")
+st.write("Upload a face image to predict the emotion.")
+
+# Download the latest version of the model from Kaggle Hub
+path = kagglehub.model_download("prakhar146/emotion-classification/pyTorch/default")
+st.write(f"Model loaded from: {path}")
+
+# Load the model
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = EmotionClassifier(num_classes=3).to(device)
+model.load_state_dict(torch.load(path, map_location=device))
 model.eval()
 
-# Define transforms
+# Define transforms for image preprocessing
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
@@ -34,20 +44,18 @@ transform = transforms.Compose([
 ])
 
 # Class labels (adjust according to your dataset)
-label_map = {0: "Anger", 1: "Fear", 2: "Happy"}
+label_map = {0: "Angry", 1: "Sad", 2: "Happy"}
 
-# Streamlit UI
-st.title("😊 Emotion Classifier")
-st.write("Upload a face image to predict the emotion.")
-
+# Image uploader
 uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     image = Image.open(uploaded_file).convert('RGB')
     st.image(image, caption="Uploaded Image", use_column_width=True)
     
-    # Preprocess and predict
-    img_tensor = transform(image).unsqueeze(0)
+    # Preprocess the image and make a prediction
+    img_tensor = transform(image).unsqueeze(0).to(device)
+    
     with torch.no_grad():
         output = model(img_tensor)
         _, predicted = torch.max(output, 1)
