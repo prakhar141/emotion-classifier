@@ -1,12 +1,13 @@
 import os
-os.system('pip install torch==2.0.0+cpu torchvision==0.15.0+cpu')
-
 import streamlit as st
 import torch
 import torch.nn as nn
 from torchvision import transforms
 from PIL import Image
 import kagglehub
+
+# Install necessary packages
+os.system('pip install torch==2.0.0+cpu torchvision==0.15.0+cpu Pillow')
 
 # Define your model architecture
 class EmotionClassifier(nn.Module):
@@ -30,14 +31,22 @@ st.title("😊 Emotion Classifier")
 st.write("Upload a face image to predict the emotion.")
 
 # Download the latest version of the model from Kaggle Hub
-path = kagglehub.model_download("prakhar146/emotion-classification/pyTorch/default")
-st.write(f"Model loaded from: {path}")
+try:
+    path = kagglehub.model_download("prakhar146/emotion-classification/pyTorch/default")
+    st.write(f"Model loaded from: {path}")
+except Exception as e:
+    st.error(f"Error downloading the model: {e}")
 
 # Load the model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = EmotionClassifier(num_classes=3).to(device)
-model.load_state_dict(torch.load(path, map_location=device))
-model.eval()
+
+# Ensure the model is loaded correctly
+try:
+    model.load_state_dict(torch.load(path, map_location=device))
+    model.eval()
+except Exception as e:
+    st.error(f"Error loading the model: {e}")
 
 # Define transforms for image preprocessing
 transform = transforms.Compose([
@@ -53,15 +62,18 @@ label_map = {0: "Angry", 1: "Sad", 2: "Happy"}
 uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    image = Image.open(uploaded_file).convert('RGB')
-    st.image(image, caption="Uploaded Image", use_column_width=True)
-    
-    # Preprocess the image and make a prediction
-    img_tensor = transform(image).unsqueeze(0).to(device)
-    
-    with torch.no_grad():
-        output = model(img_tensor)
-        _, predicted = torch.max(output, 1)
-        emotion = label_map[predicted.item()]
-    
-    st.success(f"Predicted Emotion: **{emotion}**")
+    try:
+        image = Image.open(uploaded_file).convert('RGB')
+        st.image(image, caption="Uploaded Image", use_column_width=True)
+
+        # Preprocess the image and make a prediction
+        img_tensor = transform(image).unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            output = model(img_tensor)
+            _, predicted = torch.max(output, 1)
+            emotion = label_map[predicted.item()]
+
+        st.success(f"Predicted Emotion: **{emotion}**")
+    except Exception as e:
+        st.error(f"Error processing the image: {e}")
