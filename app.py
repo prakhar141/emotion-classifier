@@ -1,5 +1,4 @@
-pip install gradio
-import gradio as gr
+import streamlit as st
 import torch
 import torch.nn as nn
 import numpy as np
@@ -11,7 +10,7 @@ IMG_SIZE = 224
 NUM_CLASSES = 8
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Preprocessing for input images
+# Preprocessing
 transform = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ToTensor(),
@@ -19,7 +18,7 @@ transform = transforms.Compose([
                          [0.229, 0.224, 0.225])
 ])
 
-# CNN model architecture
+# Model
 class CustomCNN(nn.Module):
     def __init__(self, num_classes=NUM_CLASSES):
         super(CustomCNN, self).__init__()
@@ -52,10 +51,8 @@ model = CustomCNN().to(device)
 model.load_state_dict(torch.load("best_model.pth", map_location=device))
 model.eval()
 
-# Emotion labels
 emotion_labels = ['Anger', 'Contempt', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
 
-# Prediction function
 def predict_emotion(image):
     image = image.convert("RGB")
     img_tensor = transform(image).unsqueeze(0).to(device)
@@ -67,18 +64,15 @@ def predict_emotion(image):
         top_5_emotions = [emotion_labels[i] for i in top_5_indices]
         top_5_values = [output_values[i] for i in top_5_indices]
     
-    result = "\n".join([f"{emotion}: {value:.2f}" for emotion, value in zip(top_5_emotions, top_5_values)])
-    return f"Top 5 Emotion Scores:\n{result}"
+    return "\n".join([f"{emotion}: {value:.2f}" for emotion, value in zip(top_5_emotions, top_5_values)])
 
-# Gradio Interface
-interface = gr.Interface(
-    fn=predict_emotion,
-    inputs=gr.Image(type="pil"),
-    outputs=gr.Textbox(label="Emotion Prediction"),
-    title="Emotion Prediction from Image",
-    description="Upload an image to predict the top 5 emotions with the highest confidence scores."
-)
+# Streamlit UI
+st.title("Emotion Prediction from Image")
+st.write("Upload an image to predict the top 5 emotions with the highest confidence scores.")
 
-# Launch
-if __name__ == "__main__":
-    interface.launch(share=True)
+uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
+if uploaded_file:
+    image = Image.open(uploaded_file)
+    st.image(image, caption="Uploaded Image", use_column_width=True)
+    prediction = predict_emotion(image)
+    st.text(prediction)
