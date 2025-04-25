@@ -1,89 +1,83 @@
-import os
-import streamlit as st
-
-try:
-    import torch
-    st.success(f"torch {torch.__version__} is available")
-except ImportError:
-    st.warning("torch not found. Installing...")
-    os.system('pip install torch==2.0.1 torchvision==0.15.2')
-    import torch
-    st.success(f"Installed torch version: {torch.__version__}")
-
-import streamlit as st
-from PIL import Image
+import gradio as gr
 import torch
 import torch.nn as nn
-from torchvision import transforms, models
 import numpy as np
+from torchvision import transforms
+from PIL import Image
 
-# ---------------------------
-# Define the Emotion Classifier
-# ---------------------------
-class EmotionClassifier(nn.Module):
-    def __init__(self, num_classes=3):
-        super(EmotionClassifier, self).__init__()
-        self.base_model = models.resnet18(pretrained=False)
-        self.base_model.fc = nn.Sequential(
-            nn.Dropout(0.5),
-            nn.Linear(self.base_model.fc.in_features, 256),
+# Configuration
+IMG_SIZE = 224
+NUM_CLASSES = 8
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Preprocessing for input images
+transform = transforms.Compose([
+    transforms.Resize((IMG_SIZE, IMG_SIZE)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406],
+                         [0.229, 0.224, 0.225])
+])
+
+# CNN model architecture
+class CustomCNN(nn.Module):
+    def __init__(self, num_classes=NUM_CLASSES):
+        super(CustomCNN, self).__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.BatchNorm1d(256),
-            nn.Linear(256, num_classes)
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+        )
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(128 * 28 * 28, 512),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(512, num_classes)
         )
 
     def forward(self, x):
-        return self.base_model(x)
+        x = self.features(x)
+        x = self.classifier(x)
+        return x
 
-# ---------------------------
 # Load model
-# ---------------------------
-@st.cache_resource
-def load_model():
-    model = EmotionClassifier(num_classes=3)
-    model.load_state_dict(torch.load("emotion_classifier.pth", map_location=torch.device("cpu")))
-    model.eval()
-    return model
+model = CustomCNN().to(device)
+model.load_state_dict(torch.load("best_model.pth", map_location=device))
+model.eval()
 
-model = load_model()
+# Emotion labels
+emotion_labels = ['Anger', 'Contempt', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
 
-# ---------------------------
-# Define transform
-# ---------------------------
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize([0.5], [0.5])
-])
-
-# ---------------------------
-# Label Mapping
-# ---------------------------
-# Adjust these to your actual labels
-labels_map = {
-    0: "Happy",
-    1: "Sad",
-    2: "Angry"
-}
-
-# ---------------------------
-# Streamlit UI
-# ---------------------------
-st.title("Emotion Classifier from Image")
-st.write("Upload an image of a face and I’ll tell you the emotion!")
-
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
-
-if uploaded_file is not None:
-    image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_column_width=True)
-
-    # Preprocess
-    input_tensor = transform(image).unsqueeze(0)  # Add batch dimension
-
-    # Predict
+# Prediction function
+def predict_emotion(image):
+    image = image.convert("RGB")
+    img_tensor = transform(image).unsqueeze(0).to(device)
+    
     with torch.no_grad():
-        outputs = model(input_tensor)
-        _, predicted = torch.max(outputs, 1)
-        predicted_class = predicted.item()
-        st.success(f"Predicted Emotion: **{labels_map[predicted_class]}**")
+        outputs = model(img_tensor)
+        output_values = outputs[0].cpu().numpy()
+        top_5_indices = np.argsort(output_values)[-5:][::-1]
+        top_5_emotions = [emotion_labels[i] for i in top_5_indices]
+        top_5_values = [output_values[i] for i in top_5_indices]
+    
+    result = "\n".join([f"{emotion}: {value:.2f}" for emotion, value in zip(top_5_emotions, top_5_values)])
+    return f"Top 5 Emotion Scores:\n{result}"
+
+# Gradio Interface
+interface = gr.Interface(
+    fn=predict_emotion,
+    inputs=gr.Image(type="pil"),
+    outputs=gr.Textbox(label="Emotion Prediction"),
+    title="Emotion Prediction from Image",
+    description="Upload an image to predict the top 5 emotions with the highest confidence scores."
+)
+
+# Launch
+if __name__ == "__main__":
+    interface.launch(share=True)
